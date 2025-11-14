@@ -1,15 +1,13 @@
 # Arc Invoice Finance dApp
 
-![workflow](workflow.png)
-
 ## Overview
 
-Arc Invoice Finance is a proof-of-concept dApp on Arc Testnet that digitizes invoice financing. Every invoice is represented by an ERC‑721 NFT and flows through the following lifecycle:
+Arc Invoice Finance is a proof-of-concept dApp on Arc Testnet that digitizes invoice financing. Every invoice is represented by an ERC‑721 NFT and flows through four phases:
 
-1. **Create** – The SME wallet calls `createInvoice(debtor, faceValue, dueDate)` to mint a Draft invoice NFT.
-2. **List** – The SME sets a fixed selling price via `listInvoice`. The UI automatically approves the marketplace contract (`setApprovalForAll`). Status becomes `Listed`.
-3. **Buy** – An investor approves USDC and calls `buyInvoice`. Funds move from investor → SME (minus a 2% protocol fee), and the NFT owner becomes the investor (`Funded` status).
-4. **Settle** – The debtor approves USDC and calls `settleInvoice`. The face value (minus fee) is paid to the investor, and the invoice becomes `Settled`. If the debtor misses the deadline plus a 7‑day grace period, the account with `SETTLER_ROLE` can call `markDefaulted`.
+1. **Create** – SME wallet calls `createInvoice(debtor, faceValue, dueDate)` to mint a Draft invoice NFT.
+2. **List** – SME approves the marketplace (`setApprovalForAll`) and sets a minimum price with `listInvoice`; status becomes `Listed`.
+3. **Buy** – Investor approves USDC then calls `buyInvoice`; funds move from investor → SME (minus 2% fee) and the NFT owner becomes the investor (`Funded`).
+4. **Settle / Default** – Debtor settles by calling `settleInvoice` (face value minus fee flows to investor). If the due date plus a 7‑day grace period passes, an account with `SETTLER_ROLE` may `markDefaulted`.
 
 ## Deployed Contracts (Arc Testnet)
 

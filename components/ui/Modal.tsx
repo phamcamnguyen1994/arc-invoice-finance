@@ -6,18 +6,30 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  overlayClassName?: string;
+  contentClassName?: string;
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, overlayClassName, contentClassName }) => {
   if (!isOpen) return null;
 
+  const overlayClasses = [
+    'fixed inset-0 z-50 flex items-center justify-center bg-black/80',
+    overlayClassName ?? '',
+  ].join(' ').trim();
+
+  const contentClasses = [
+    'relative w-full max-w-lg p-6 bg-card border border-border rounded-lg shadow-lg',
+    contentClassName ?? '',
+  ].join(' ').trim();
+
   return (
-    <div 
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+    <div
+      className={overlayClasses}
       onClick={onClose}
     >
-      <div 
-        className="relative w-full max-w-lg p-6 bg-card border border-border rounded-lg shadow-lg"
+      <div
+        className={contentClasses}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-4">

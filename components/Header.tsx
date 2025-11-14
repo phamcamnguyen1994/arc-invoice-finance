@@ -51,10 +51,7 @@ export const Header: React.FC<HeaderProps> = ({ balance, activeTab, onTabChange 
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center space-x-8">
-            <div className="flex items-center space-x-2">
-                <LogoIcon />
-                <span className="font-bold text-lg">Arc Invoice Finance</span>
-            </div>
+            <img src="/logo.png" alt="Arc Invoice Finance" className="h-10" />
             <nav className="hidden md:flex items-center space-x-2">
                 <NavButton tab="marketplace" label="Marketplace" />
                 <NavButton tab="portfolio" label="My Portfolio" />

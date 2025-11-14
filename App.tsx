@@ -6,6 +6,7 @@ import { CreateInvoiceForm } from './components/CreateInvoiceForm';
 import { useInvoiceData } from './hooks/useInvoiceData';
 import { InvoiceStatus } from './types';
 import { useWeb3 } from './contexts/Web3Context';
+import { WorkflowTimeline } from './components/WorkflowTimeline';
 
 type Tab = 'marketplace' | 'portfolio' | 'create';
 
@@ -22,6 +23,7 @@ const App: React.FC = () => {
   } = useInvoiceData();
   const [activeTab, setActiveTab] = useState<Tab>('marketplace');
   const { address: walletAddress } = useWeb3();
+  const [showWorkflow, setShowWorkflow] = useState(false);
 
   const currentUserAddress = useMemo(
     () => walletAddress?.toLowerCase() || '',
@@ -86,7 +88,16 @@ const App: React.FC = () => {
         activeTab={activeTab}
         onTabChange={setActiveTab}
       />
-      <main className="container mx-auto p-4 md:p-6 lg:p-8">
+      <main className="container mx-auto p-4 md:p-6 lg:p-8 space-y-6">
+        <div className="flex justify-end">
+          <button
+            onClick={() => setShowWorkflow(prev => !prev)}
+            className="px-3 py-2 text-sm font-medium border border-border rounded-md hover:bg-secondary transition-colors"
+          >
+            {showWorkflow ? 'Hide workflow' : 'Show workflow'}
+          </button>
+        </div>
+        {showWorkflow && <WorkflowTimeline />}
         {renderContent()}
       </main>
     </div>
