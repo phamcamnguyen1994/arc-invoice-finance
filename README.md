@@ -9,6 +9,13 @@ Arc Invoice Finance is a proof-of-concept dApp on Arc Testnet that digitizes inv
 3. **Buy** – Investor approves USDC then calls `buyInvoice`; funds move from investor → SME (minus 2% fee) and the NFT owner becomes the investor (`Funded`).
 4. **Settle / Default** – Debtor settles by calling `settleInvoice` (face value minus fee flows to investor). If the due date plus a 7‑day grace period passes, an account with `SETTLER_ROLE` may `markDefaulted`.
 
+### Real-world applications
+
+- **Early liquidity for SMEs** – Small and medium businesses can tokenize receivables and sell them at a discount to access working capital immediately, instead of waiting 30–90 days for customers to pay.
+- **Short-term yield for investors** – DeFi investors can purchase invoices with a known discount and receive the full face value at maturity, creating predictable fixed-income products on-chain.
+- **Transparent receivables marketplace** – Ownership, status changes, and cash flows are recorded on-chain, simplifying audit/compliance and allowing easy integration with off-chain KYC or credit scoring providers.
+- **Foundation for advanced features** – The contracts can be extended with offer/auction flows, secondary trading, liquidity pools, or risk analytics to operate as a full invoice financing platform.
+
 ## Deployed Contracts (Arc Testnet)
 
 | Contract            | Address                                                 |

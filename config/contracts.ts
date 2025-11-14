@@ -7,6 +7,7 @@ const {
   VITE_INVOICE_MARKETPLACE_ADDRESS,
   VITE_INVOICE_NFT_ADDRESS,
   VITE_ARC_RPC_URL,
+  VITE_ARC_RPC_URLS,
   VITE_USDC_ADDRESS,
 } = import.meta.env;
 
@@ -17,6 +18,15 @@ export const INVOICE_NFT_ADDRESS =
   VITE_INVOICE_NFT_ADDRESS || DEFAULT_NFT_ADDRESS;
 
 export const ARC_RPC_URL = VITE_ARC_RPC_URL || DEFAULT_ARC_RPC_URL;
+
+const additionalRpcUrls = (VITE_ARC_RPC_URLS || '')
+  .split(',')
+  .map(url => url.trim())
+  .filter(Boolean);
+
+export const ARC_RPC_URLS = [ARC_RPC_URL, ...additionalRpcUrls].filter(
+  (value, index, self) => self.indexOf(value) === index,
+);
 
 export const CONTRACT_ADDRESSES = {
   marketplace: INVOICE_MARKETPLACE_ADDRESS,

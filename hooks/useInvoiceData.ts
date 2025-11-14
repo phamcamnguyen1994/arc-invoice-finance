@@ -24,6 +24,58 @@ const toTokenUnits = (value: number): bigint => {
 };
 
 const fromTokenUnits = (value: bigint): number => Number(value) / DECIMAL_FACTOR;
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const isRateLimitError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const err = error as Record<string, unknown>;
+  if (typeof err.code === 'number' && err.code === -32005) {
+    return true;
+  }
+  if (typeof err.code === 'string' && err.code.toLowerCase().includes('rate')) {
+    return true;
+  }
+  if (typeof err.message === 'string' && err.message.toLowerCase().includes('rate limit')) {
+    return true;
+  }
+  if ('error' in err && err.error) {
+    return isRateLimitError(err.error);
+  }
+  return false;
+};
+
+const isMissingInvoiceError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const message =
+    (error as { message?: unknown }).message && typeof (error as { message?: unknown }).message === 'string'
+      ? ((error as { message: string }).message || '').toLowerCase()
+      : '';
+  return message.includes('missing revert data') || message.includes('call_exception');
+};
+const withRateLimitRetry = async <T>(
+  action: () => Promise<T>,
+  label: string,
+  maxAttempts = 3,
+) => {
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    try {
+      return await action();
+    } catch (error) {
+      if (attempt < maxAttempts && isRateLimitError(error)) {
+        await sleep(250 * attempt);
+        continue;
+      }
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), { label });
+    }
+  }
+  throw new Error(`Exceeded retry attempts for ${label}`);
+};
 
 const normalizeAddress = (value?: string | null): string => (value ? value.toLowerCase() : '');
 
@@ -32,7 +84,15 @@ export const useInvoiceData = () => {
   const [balances, setBalances] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const { marketplace, invoiceNft, usdc, addresses } = useContracts();
+  const {
+    marketplace,
+    marketplaceRead,
+    invoiceNft,
+    invoiceNftRead,
+    usdc,
+    usdcRead,
+    addresses,
+  } = useContracts();
   const { address: walletAddress } = useWeb3();
   const hasLoggedContracts = useRef(false);
 
@@ -43,91 +103,110 @@ export const useInvoiceData = () => {
 
   const fetchBalances = useCallback(
     async (accountAddresses: Set<string>) => {
-      if (!usdc || accountAddresses.size === 0) {
+      const contract = usdcRead || usdc;
+      if (!contract || accountAddresses.size === 0) {
         return;
       }
-      try {
-        const entries = await Promise.all(
-          Array.from(accountAddresses)
-            .filter(addr => !!addr)
-            .map(async addr => {
-              try {
-                const balance: bigint = await usdc.balanceOf(addr);
-                return [addr, fromTokenUnits(balance)] as const;
-              } catch (error) {
-                console.warn(`Failed to fetch balance for ${addr}`, error);
-                return [addr, 0] as const;
-              }
-            }),
-        );
+      const updates: Array<readonly [string, number]> = [];
+      for (const addr of accountAddresses) {
+        if (!addr) continue;
+        let attempts = 0;
+        while (attempts < 3) {
+          attempts += 1;
+          try {
+            const balance: bigint = await contract.balanceOf(addr);
+            updates.push([addr, fromTokenUnits(balance)]);
+            break;
+          } catch (error) {
+            if (attempts < 3 && isRateLimitError(error)) {
+              await sleep(250 * attempts);
+              continue;
+            }
+            console.warn(`Failed to fetch balance for ${addr}`, error);
+            updates.push([addr, 0]);
+            break;
+          }
+        }
+        await sleep(75);
+      }
+      if (updates.length > 0) {
         setBalances(prev => ({
           ...prev,
-          ...Object.fromEntries(entries),
+          ...Object.fromEntries(updates),
         }));
-      } catch (error) {
-        console.error('Failed to fetch balances', error);
       }
     },
-    [usdc],
+    [usdc, usdcRead],
   );
 
   const fetchInvoices = useCallback(async () => {
-    if (!invoiceNft) {
+    const nftReader = invoiceNftRead || invoiceNft;
+    const marketplaceReader = marketplaceRead || marketplace;
+    if (!nftReader) {
       return;
     }
     setIsLoading(true);
     try {
       let latestId = 0;
       try {
-        latestId = Number(await invoiceNft.latestInvoiceId());
+        latestId = Number(await withRateLimitRetry(() => nftReader.latestInvoiceId(), 'latestInvoiceId'));
       } catch (error) {
         console.warn('Unable to read latest invoice id', error);
       }
-      const invoicesFromChain = await Promise.all(
-        Array.from({ length: latestId }, (_, index) => index + 1).map(async invoiceId => {
-          try {
-            const data = await invoiceNft.invoiceData(invoiceId);
-            const ownerAddress = normalizeAddress(await invoiceNft.ownerOf(invoiceId));
-            const statusNumeric = Number(data.status ?? 0);
-            const status = statusMap[statusNumeric] ?? InvoiceStatus.Draft;
+      const invoicesFromChain: Array<Invoice | null> = [];
+      for (let invoiceId = 1; invoiceId <= latestId; invoiceId += 1) {
+        try {
+          const data = await withRateLimitRetry(() => nftReader.invoiceData(invoiceId), `invoiceData:${invoiceId}`);
+          const owner = await withRateLimitRetry(() => nftReader.ownerOf(invoiceId), `ownerOf:${invoiceId}`);
+          const ownerAddress = normalizeAddress(owner);
+          const statusNumeric = Number(data.status ?? 0);
+          const status = statusMap[statusNumeric] ?? InvoiceStatus.Draft;
 
-            let minPrice = 0;
-            if (status === InvoiceStatus.Listed && marketplace?.listings) {
-              try {
-                const listing = await marketplace.listings(invoiceId);
-                if (listing?.active) {
-                  minPrice = fromTokenUnits(BigInt(listing.minPrice));
-                }
-              } catch (error) {
-                console.warn(`Unable to read listing for invoice ${invoiceId}`, error);
+          let minPrice = 0;
+          if (status === InvoiceStatus.Listed && marketplaceReader?.listings) {
+            try {
+              const listing = await withRateLimitRetry(
+                () => marketplaceReader.listings(invoiceId),
+                `listings:${invoiceId}`,
+              );
+              if (listing?.active) {
+                minPrice = fromTokenUnits(BigInt(listing.minPrice));
               }
+            } catch (error) {
+              console.warn(`Unable to read listing for invoice ${invoiceId}`, error);
             }
-
-            return {
-              id: invoiceId,
-              issuer: normalizeAddress(data.issuer),
-              owner: ownerAddress,
-              debtor: normalizeAddress(data.debtor),
-              faceValue: fromTokenUnits(BigInt(data.faceValue)),
-              dueDate: Number(data.dueDate) * 1000,
-              createdAt: Number(data.createdAt) * 1000,
-              status,
-              minPrice,
-            } satisfies Invoice;
-          } catch (error) {
-            return undefined;
           }
-        }),
-      );
+
+          invoicesFromChain.push({
+            id: invoiceId,
+            issuer: normalizeAddress(data.issuer),
+            owner: ownerAddress,
+            debtor: normalizeAddress(data.debtor),
+            faceValue: fromTokenUnits(BigInt(data.faceValue)),
+            dueDate: Number(data.dueDate) * 1000,
+            createdAt: Number(data.createdAt) * 1000,
+            status,
+            minPrice,
+          });
+        } catch (error) {
+          if (!isMissingInvoiceError(error)) {
+            console.warn(`Failed to fetch data for invoice ${invoiceId}`, error);
+          }
+          invoicesFromChain.push(null);
+        }
+        await sleep(50);
+      }
 
       setInvoices(invoicesFromChain.filter((inv): inv is Invoice => !!inv));
 
       const addressesToTrack = new Set<string>();
-      invoicesFromChain.forEach(invoice => {
-        addressesToTrack.add(invoice.issuer);
-        addressesToTrack.add(invoice.owner);
-        addressesToTrack.add(invoice.debtor);
-      });
+      invoicesFromChain
+        .filter((invoice): invoice is Invoice => !!invoice)
+        .forEach(invoice => {
+          addressesToTrack.add(invoice.issuer);
+          addressesToTrack.add(invoice.owner);
+          addressesToTrack.add(invoice.debtor);
+        });
       if (walletAddress) {
         addressesToTrack.add(normalizeAddress(walletAddress));
       }
@@ -137,7 +216,14 @@ export const useInvoiceData = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [fetchBalances, invoiceNft, marketplace, walletAddress]);
+  }, [
+    fetchBalances,
+    invoiceNft,
+    invoiceNftRead,
+    marketplace,
+    marketplaceRead,
+    walletAddress,
+  ]);
 
   useEffect(() => {
     if (marketplace && invoiceNft && !hasLoggedContracts.current) {
